@@ -5,7 +5,3 @@ joblib>=1.4,<2
 fastapi>=0.115,<1
 uvicorn>=0.30,<1
 pydantic>=2.9,<3
-httpx>=0.27,<1
-jupyter>=1.1,<2
-ipykernel>=6.29,<7
-nbconvert>=7.16,<8

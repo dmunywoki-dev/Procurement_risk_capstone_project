@@ -1,19 +1,24 @@
-# DSA 8401 — Applied Machine Learning Capstone: Requirements Crosswalk
+# DSA 8401 Capstone — Requirements Crosswalk
 
 **Programme:** MSc Data Science & Analytics, Strathmore University  
-**Student:** Dean Maingi Munywoki (113719)
-
-This crosswalk is a project-readiness aid. Confirm the final submission format and any updated lecturer instructions against the current course portal.
+**Mode:** Individual end-to-end ML system  
+**Weight:** 60% of the course grade
 
 | Assessment area | Evidence in this project |
 |---|---|
-| Data ingestion and audit | `notebooks/01_TGEE_End_to_End.ipynb`, source hash manifest and audit CSV |
-| Data cleaning and feature preparation | Currency-aware extraction, missingness handling and point-in-time feature engineering in notebook 1 |
-| Modelling and evaluation | TGEE branch ensemble, tabular IF/LOF baselines, rank stability, ablation, optional proxy experiment |
-| Technique justification | `README.md`, notebook methodology notes and `reports/FINAL_REPORT.md` |
-| Model service and deployment | `notebooks/02_FastAPI_Model_Service.ipynb`, `Dockerfile`, `docker-compose.yml` |
-| Reproducibility | `run_pipeline.sh`, pinned major dependency ranges, source hashes and saved model bundle |
-| Report and presentation | `reports/FINAL_REPORT.md`, `reports/PRESENTATION_SLIDES.md` |
-| AI assistance disclosure | `AI_USE.md` |
+| Problem selection and real-world messiness | Kenya PPIP/OCDS FY2025/2026; missingness, invalid tender dates, disclosure gaps, currency ambiguity and identifier quality audited in Notebook 1 |
+| Sufficient system depth | Nested data ingestion, feature engineering, chronological modelling, relational history, anomaly ranking, API, Docker, MLOps and monitoring |
+| Reproducible ML pipeline | Notebook 1 plus run_pipeline.sh; source hashes and run metadata; report build script |
+| Data pipeline (10%) | Ingestion, FY filtering, uniqueness check, quality audit, currency-aware cleaning and point-in-time feature engineering |
+| Modelling and evaluation (20%) | TGEE, Isolation Forest and LOF comparison, GMM/BIC challenger, PCA diagnostics, temporal holdout, top-K overlap, ablation and stability |
+| Technique justification (10%) | docs/TECHNIQUE_JUSTIFICATION.md and docs/REFERENCE_REPO_ALIGNMENT.md |
+| Deployment (10%) | api_service.py, Pydantic request contract, TestClient coverage, Dockerfile and docker-compose.yml |
+| Final report and presentation (10%) | reports/FINAL_REPORT.md and reports/PRESENTATION_SLIDES.md, generated from run evidence |
+| AI disclosure | AI_USE.md |
+| MLOps and quality controls | GitHub Actions, pytest, optional MLflow experiment tracking/registry, PSI/KS monitoring and promotion gate |
 
-**Important data-science qualification:** verified integrity outcomes are not assumed. Unsupervised metrics assess ranking behaviour; optional supervised classification metrics assess agreement with proxy rules only. The project must not present proxy labels as legal findings or confirmed fraud outcomes.
+## Critical evaluation qualification
+Independent procurement-integrity outcome labels are not available in the public snapshot. The primary model is therefore unsupervised anomaly prioritisation. Ranking similarity, score stability and GMM density diagnostics are reported as such. Optional proxy-rule classification metrics are not fraud accuracy and must not be described as confirmed misconduct detection.
+
+## Required final-run evidence
+The official-source execution is a local action because raw PPIP procurement files are intentionally not committed to the repository. Run bash run_pipeline.sh, inspect the generated run metadata and report, and use python scripts/preflight_submission.py to ensure a synthetic fixture has not been mistaken for the official empirical run.
