@@ -9,5 +9,5 @@ services:
       API_HOST: "0.0.0.0"
       API_PORT: "8000"
     volumes:
-      - ./artifacts:/app/artifacts:ro
+      - ./artifacts/fy2025_2026:/app/artifacts/fy2025_2026:ro
     restart: unless-stopped
