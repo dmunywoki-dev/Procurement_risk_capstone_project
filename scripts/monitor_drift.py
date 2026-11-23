@@ -18,12 +18,14 @@ from scipy.stats import ks_2samp
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_INPUT = (
     ROOT / "data" / "processed" / "fy2025_2026"
-    / "api_prepared_features.csv"
+    / "scored_process_snapshots.csv"
 )
 EXCLUDE = {
     "ocid", "release_id", "buyer_name", "event_date", "data_split",
     "record_type", "combined_text", "supplier_names_display",
-    "tgee_priority_score", "review_band",
+    "tgee_priority_score", "review_band", "tabular_score", "text_score",
+    "temporal_score", "graph_score", "hypergraph_score",
+    "dominant_component", "review_reason",
 }
 
 
