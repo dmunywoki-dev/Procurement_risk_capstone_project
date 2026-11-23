@@ -1,0 +1,60 @@
+name: DSA 8401 Capstone CI
+
+on:
+  push:
+    branches: [main, fy2025-2026-model-rebuild]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  reproducibility-and-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+      - name: Validate notebook structure and Python syntax
+        run: python scripts/check_notebooks.py
+      - name: Run end-to-end pipeline on bundled synthetic fixture
+        run: bash run_pipeline.sh
+      - name: Execute API service notebook smoke tests
+        run: |
+          jupyter nbconvert --to notebook --execute notebooks/02_FastAPI_Model_Service.ipynb \
+            --output 02_FastAPI_Model_Service.executed.ipynb \
+            --output-dir /tmp/tgee-api-smoke \
+            --ExecutePreprocessor.timeout=1800
+      - name: Run unit tests
+        run: pytest -q
+      - name: Build Docker image
+        run: docker build -t tgee-procurement-api:ci .
+      - name: Run container health check
+        shell: bash
+        run: |
+          docker run -d --rm --name tgee-api-ci -p 8000:8000 \
+            -v "$PWD/artifacts/fy2025_2026:/app/artifacts/fy2025_2026:ro" \
+            tgee-procurement-api:ci
+          trap 'docker stop tgee-api-ci >/dev/null 2>&1 || true' EXIT
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:8000/health; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker logs tgee-api-ci
+          exit 1
