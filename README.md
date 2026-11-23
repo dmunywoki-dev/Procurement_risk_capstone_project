@@ -1,172 +1,163 @@
-# DSA 8401 Capstone — Kenya PPIP Procurement Integrity TGEE
+# DSA 8401 Capstone — Kenya PPIP Procurement Review Prioritisation
 
-**Student:** Dean Maingi Munywoki (113719)  
 **Programme:** MSc Data Science & Analytics, Strathmore University  
-**Project:** Temporal Graph-Enhanced Ensemble for procurement-integrity risk prioritisation
+**Project:** Data-Driven Procurement Risk Prioritisation Using Unsupervised Anomaly Detection and Buyer–Supplier Network Analysis  
+**Academic unit:** Individual DSA 8401 Applied Machine Learning capstone
 
-## 1. What this project does
+## Project purpose
 
-This capstone builds a reproducible screening prototype over Kenya's PPIP/Open Contracting Data Standard (OCDS) procurement process records. The Temporal Graph-Enhanced Ensemble (TGEE) combines:
+This repository implements a reproducible end-to-end machine-learning system that ranks unusual procurement process records from Kenya's PPIP / Open Contracting Data Standard (OCDS) publications for human review.
 
-- **Structured tabular anomalies:** procurement method, tender duration, KES-denominated award values, tenderer disclosure, and procurement category.
-- **Tender-text novelty:** TF-IDF / truncated-SVD representation of available titles and descriptions.
-- **Temporal deviations:** current tender duration and award value compared with prior records in the same method/category stratum.
-- **Buyer-supplier graph history:** prior buyer-supplier recurrence, supplier reach and concentration features computed before the current process updates the relationship history.
-- **Conditional bidder co-participation:** a hypergraph-inspired co-bidding branch that is enabled only when enough multi-tenderer identities are disclosed and linkable.
+The model does **not** predict the probability of fraud. An anomaly score is not proof of corruption, collusion, illegality or supplier wrongdoing. It is a relative prioritisation signal intended to help a qualified reviewer decide which public records to examine first.
 
-The output is a relative review-priority score and a queue for human inspection. It is **not** a probability of fraud and does not establish corruption, collusion or illegality.
+The dataset contains real-world reporting complications: missing values, incomplete tenderer disclosure, inconsistent tender dates, mixed or missing financial amounts, identifier coverage issues and reporting-volume variation. The project preserves those limitations rather than hiding them through unsupported imputation or entity merging.
 
-## 2. Important methodological corrections
+## Architecture
 
-The submitted TGEE notebook used a `is_high_risk` target generated from the same red-flag and graph variables later supplied to supervised models. It also calculated network features across the full dataset before a random train/test split. Those choices make the reported classifier metrics unsuitable as evidence of fraud detection.
+1. **Ingestion and provenance:** the end-to-end notebook reads OCDS JSON / JSONL source files, applies the FY2025/2026 cohort filter and records source SHA-256 hashes.
+2. **Quality and feature engineering:** audit missingness, date and amount quality; extract structured, text, temporal and buyer–supplier history features.
+3. **Leakage-safe modelling:** chronological train / holdout split; fit preprocessing, vectorisation, detectors, score references and thresholds on the earlier period only. Historical graph features use prior records before the current process updates relationship state.
+4. **Anomaly ranking:** Isolation Forest branches, TF-IDF/SVD text novelty and graph/temporal signals form the TGEE score; LOF and GMM act as challengers. PCA is diagnostic.
+5. **Evaluation:** rank correlation, top-K overlap, branch ablation, seed sensitivity, holdout review bands and data-quality reporting. There are no verified outcome labels, so accuracy metrics are not presented as fraud performance.
+6. **Serving:** FastAPI accepts the versioned prepared-feature contract; Docker packages the service. The API does not infer historical context from a raw isolated tender.
+7. **MLOps and monitoring:** pytest, GitHub Actions, optional MLflow experiment tracking and model registry, PSI/KS feature drift, group-level review-band diagnostics and fail-closed promotion checks.
 
-This rebuilt project therefore:
+## Repository layout
 
-1. uses a chronological holdout rather than a random stratified split;
-2. calculates temporal and graph-history features from prior records only;
-3. keeps missing tenderer identities unknown rather than converting them to zero bidders;
-4. aggregates award amounts only where the source currency is explicitly KES;
-5. treats Benford's Law as an exploratory diagnostic, not evidence of manipulation;
-6. makes unsupervised anomaly ranking the primary empirical output because verified integrity labels are unavailable;
-7. retains a secondary supervised stacking experiment only as agreement with a transparent, rule-generated **proxy** label; it must not be described as validated fraud prediction;
-8. does not claim a GCN: this implementation uses classical anomaly detectors and graph/co-participation statistics.
+~~~text
+notebooks/
+  01_TGEE_End_to_End.ipynb       Main training and evaluation pipeline
+  02_FastAPI_Model_Service.ipynb API contract and TestClient demonstration
+api_service.py                   Production FastAPI scoring service
+mlflow_tgee_model.py             MLflow PyFunc wrapper
+scripts/
+  build_report.py                Build report/slides from official run outputs
+  check_notebooks.py             Notebook structure and Python syntax checks
+  monitor_drift.py               PSI / KS and operational group diagnostics
+  preflight_submission.py        Submission completeness check
+  promote_model.py               Fail-closed MLflow champion promotion gate
+  track_mlflow.py                MLflow run logging and model registration
+tests/                            API, monitoring and report tests
+data/raw/                         Place the official PPIP/OCDS source here
+data/sample/                      Synthetic software smoke-test fixture only
+data/processed/fy2025_2026/       Generated prepared features and scores
+artifacts/fy2025_2026/            Serialized FY2025/2026 model and metadata
+reports/fy2025_2026/              Empirical tables, figures and review queue
+docs/                              Method, governance and submission documentation
+.github/workflows/ci.yml           Automated test and Docker build
+~~~
 
-The uploaded research proposal is preserved in `docs/Procurement_Integrity_Proposal_Final.pdf`. A bidder-hypergraph neural model or GCN is not implemented in this capstone build; the optional co-participation features are a conditional, non-neural precursor.
+## Data setup
 
-## 3. Project structure
+Place the official FY2025/2026 source file used by the project in **data/raw/**. The current local analysis uses the explicit source file name **2025_2026.json**. Do not mix unrelated extracts into the raw-data directory.
 
-```text
-DSA8401_Procurement_Integrity_TGEE/
-├── notebooks/
-│   ├── 01_TGEE_End_to_End.ipynb
-│   └── 02_FastAPI_Model_Service.ipynb
-├── data/
-│   ├── raw/                    # Place official PPIP/OCDS data here
-│   ├── sample/                 # Synthetic software smoke-test fixture only
-│   └── processed/              # Generated feature and score files
-├── artifacts/                  # Saved model bundle and run metadata
-├── reports/
-│   ├── FINAL_REPORT.md
-│   ├── PRESENTATION_SLIDES.md
-│   ├── figures/
-│   └── tables/
-├── docs/                       # Exam brief, proposal and revision notes
-├── run_pipeline.sh
-├── run_api.sh
-├── Dockerfile
-└── docker-compose.yml
-```
+The raw procurement data are not committed to this public repository. The notebook uses an included synthetic OCDS fixture only when the official source file is absent, to support deterministic software smoke tests. Synthetic output must never be reported as empirical PPIP findings.
 
-Core implementation logic is kept in Jupyter notebooks. Shell scripts are orchestration wrappers.
+## Environment and installation
 
-## 4. Data setup
+Use Python 3.11–3.13. From the repository root:
 
-The end-to-end notebook accepts:
-
-- OCDS JSON packages containing a top-level `releases` array (e.g. `tender-releases-*.json`);
-- JSON Lines (`.jsonl`); or
-- gzip-compressed JSON Lines (`.jsonl.gz`).
-
-Copy the official files into `data/raw/`. Do not place unrelated JSON files in that folder. The notebook records a SHA-256 hash and basic file provenance for each source.
-
-```bash
-mkdir -p data/raw
-# Copy official downloaded PPIP/OCDS files into data/raw/
-```
-
-When `data/raw/` is empty, the notebook automatically selects `data/sample/synthetic_ocds_releases.json` for a deterministic smoke test. The notebook prints a warning. Synthetic results must never be presented as empirical PPIP findings.
-
-**Data-handling decisions:**
-
-- One latest release snapshot is retained per OCID for retrospective process-level analysis.
-- `event_date` uses release date, falling back to tender start date.
-- Tenderer counts are considered observed only when identifiable tenderer parties are published.
-- Award values enter the KES value features only where currency is explicitly `KES`.
-- Buyer / supplier matching uses source IDs, falling back to exact normalised names. Fuzzy entity matching is not silently performed.
-
-## 5. Setup (Python 3.11–3.13)
-
-```bash
+~~~bash
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
-pip install -r requirements.txt
-```
+pip install -r requirements-dev.txt
+~~~
 
-## 6. Run the capstone pipeline
+## Run the training and evaluation pipeline
 
-From the project root:
-
-```bash
+~~~bash
 bash run_pipeline.sh
-```
+~~~
 
-Or open `notebooks/01_TGEE_End_to_End.ipynb` in Jupyter and run all cells in order.
+The script executes Notebook 1 from a clean notebook kernel, builds the empirical report and presentation outline, and generates a retrospective feature-drift summary. The notebook outputs are written under:
 
-The pipeline produces:
+- data/processed/fy2025_2026/
+- artifacts/fy2025_2026/
+- reports/fy2025_2026/tables/
+- reports/fy2025_2026/figures/
+- reports/fy2025_2026/holdout_review_queue.csv
 
-- `data/processed/scored_process_snapshots.csv`
-- `data/processed/api_prepared_features.csv` (prepared API input contract)
-- `reports/holdout_review_queue.csv`
-- `reports/tables/data_quality_audit.csv`
-- `reports/tables/unsupervised_model_comparison.csv`
-- `reports/tables/branch_ablation.csv`
-- `reports/tables/bipartite_graph_diagnostics.csv`
-- `reports/tables/benford_by_method.csv`
-- `reports/tables/proxy_label_model_comparison.csv` (when proxy modelling is feasible)
-- `artifacts/tgee_model_bundle.joblib`
-- `artifacts/run_metadata.json`
-- `reports/figures/*.png`
+It also builds reports/FINAL_REPORT.md and reports/PRESENTATION_SLIDES.md using the actual run metadata and CSV outputs. Check the report after every official-data run.
 
-Use the review queue as an analyst shortlist. A high score means that the record is unusual relative to the model's training reference, not that misconduct occurred.
+## Run the API locally
 
-## 7. API and Docker
+After Notebook 1 has created the FY bundle:
 
-Run the API after executing the pipeline:
-
-```bash
+~~~bash
 bash run_api.sh
-```
+~~~
 
-Open `http://127.0.0.1:8000/docs`.
+Open the local FastAPI documentation at http://127.0.0.1:8000/docs.
 
 Endpoints:
 
-- `GET /health`
-- `GET /model-info`
-- `POST /score`
-- `POST /score/batch`
+- GET /health
+- GET /model-info
+- POST /score
+- POST /score/batch
 
-The API accepts **prepared point-in-time feature records**, not raw nested OCDS releases. Graph and temporal history must be generated by the same feature-engineering logic as notebook 1. This prevents the service from pretending it can reconstruct historical context from one isolated raw tender.
+The API input is a prepared process snapshot with tabular, temporal and graph feature dictionaries, optional text and a conditional hypergraph feature dictionary. It must be generated by the same feature-engineering logic and feature schema as training. Missing required fields are rejected.
 
-Docker:
+For a separate artifact location, set MODEL_BUNDLE_PATH before starting the service.
 
-```bash
+## Docker deployment
+
+~~~bash
 docker compose up --build
-```
+~~~
 
-Train the model before starting the API container. Generated `artifacts/` are mounted read-only.
+Docker mounts artifacts/fy2025_2026 read-only. Train the model before starting the container. The container runs as a non-root user and starts Uvicorn directly; it does not export or execute a notebook on startup.
 
-## 8. How to interpret evaluation
+## Tests and continuous integration
 
-Because no verified fraud/corruption target is available in the public records, the main evaluation does not claim predictive accuracy. It reports:
+~~~bash
+python scripts/check_notebooks.py
+pytest -q
+~~~
 
-- chronological holdout coverage and score distributions;
-- score-rank correlation and top-K overlap against tabular-only anomaly baselines (LOF uses a fixed seeded sample for scale);
-- branch ablation sensitivity;
-- random-seed stability;
-- data quality and tenderer-identity coverage.
+GitHub Actions runs the synthetic end-to-end pipeline, API notebook smoke test, unit tests and Docker build. The synthetic fixture validates software paths only; it does not replace the official FY2025/2026 empirical run.
 
-The optional proxy classifier reports F1 / ROC-AUC / PR-AUC only against a deterministic rule-derived proxy flag. These results are **proxy-rule agreement**, not validation against confirmed procurement misconduct. For genuine supervised validation, obtain a lawful, independently adjudicated and sufficiently representative set of investigation/audit outcomes.
+## Optional MLOps: experiment tracking and registry
 
-## 9. Limitations and next work
+Install the optional tracking dependencies:
 
-The source is a compiled public snapshot and may not reproduce exactly what was known at each historical moment. Public disclosure may be incomplete; an absent tenderer, award or contract field is not evidence that the event did not occur. Exact-name entity resolution can split the same supplier across spelling variants or combine unrelated entities with similar names. Current review bands are capacity settings and should be confirmed with procurement auditors.
+~~~bash
+pip install -r requirements-mlops.txt
+~~~
 
-The next research stage is to obtain verified review outcomes, assess buyer-disjoint and supplier-disjoint holdouts, add calibrated ranking metrics such as Precision@K / Recall@K / NDCG@K where valid relevance labels exist, and implement a true graph/hypergraph neural model only if data coverage and compute justify it.
+Then run:
 
-## 10. References
+~~~bash
+bash run_mlops.sh
+~~~
 
-- Open Contracting Partnership. Kenya: Public Procurement Regulatory Authority dataset profile. https://data.open-contracting.org/en/publication/147
-- Public Procurement Information Portal. OCDS data. https://tenders.go.ke/ocds
-- Strathmore University, DSA 8401 Applied Machine Learning course materials and exam brief (see `docs/`).
+MLflow stores run parameters, ranking diagnostics, provenance metadata and the serialised model; registers a PyFunc model; and sets a candidate alias. The promotion gate only sets the champion alias if the input data are official, the model hash matches metadata, chronological holdout outputs exist, the GMM converged, and the configured seed-stability conditions pass. A blocked promotion is a valid quality-control result, not an instruction to weaken thresholds without justification.
+
+## Monitoring and governance
+
+The retrospective monitor compares the training reference and chronological holdout distributions. Numeric features use PSI and the two-sample Kolmogorov–Smirnov statistic; categorical features use PSI. Procurement method and category summaries show review-band rates. These checks detect changes in published feature distributions, not fraud or demographic fairness.
+
+Without independently verified labels, label drift and concept drift cannot be measured. Group differences must be interpreted in context and must not trigger automatic adverse decisions. See docs/OPERATIONS_AND_GOVERNANCE.md.
+
+## Modelling choices and exclusions
+
+The selected techniques fit the available data and intended use. Isolation Forest, LOF and GMM provide complementary anomaly references; PCA is a diagnostic; TF-IDF/SVD represents available tender descriptions; and prior-only graph statistics add relational context. The project excludes supervised fraud classifiers because there is no independent fraud target; MLP/CNN/RNN/Transformer models because the task and data do not justify them; and lifecycle sequence models because the FY extract has one release per OCID. See docs/TECHNIQUE_JUSTIFICATION.md.
+
+## Course and reference alignment
+
+The course practical repository used for comparison is https://github.com/NUELBUNDI/AML_Book-Data. The procurement capstone adapts relevant practical patterns from data preparation, evaluation, ensembles, unsupervised learning, FastAPI, Docker, MLflow, testing and drift monitoring. It does not copy unrelated image or time-series exercises. See docs/REFERENCE_REPO_ALIGNMENT.md and docs/DSA_8401_CAPSTONE_EXAM_BRIEF.md.
+
+## Submission checklist
+
+Before submitting, run the official data pipeline, inspect the generated report and review queue, run tests, build and exercise Docker, disclose AI assistance in AI_USE.md, and run:
+
+~~~bash
+python scripts/preflight_submission.py
+~~~
+
+The preflight intentionally refuses to label a synthetic-fixture run as an official submission. A reviewer must be able to reproduce the pipeline using the official source files placed in data/raw/.
+
+## Responsible-use statement
+
+This system supports human review only. Do not publish supplier allegations based on anomaly scores, use the ranking to automatically exclude bidders, or interpret supplier recurrence as collusion. Reviewers should examine original procurement documents, independently corroborate concerns and record outcomes. Raw procurement data, personal data and access credentials must not be committed to Git.
