@@ -100,7 +100,7 @@ The pipeline reads the selected Kenya PPIP / OCDS source package(s), records the
 
 ### Data quality audit
 
-{_markdown_table(quality, ["metric", "value", "notes"], 40)}
+{_markdown_table(quality, ["check", "value", "interpretation"], 40)}
 
 Missing values are retained as unknown where absence is not evidence of absence. Tenderer disclosure gaps are not treated as zero competition. Financial features use only explicitly KES-denominated positive values; other currencies are not silently converted. Supplier linkage prefers source identifiers; fuzzy name-based entity merging is not performed.
 
