@@ -1,3 +1,3 @@
 # Use of AI tools
 
-AI tools were used to help review the project structure, improve explanations and check parts of the code. The data decisions, execution of the notebooks, interpretation of the outputs and final submission should be checked by the student. Any output included in the final submission should be understood and be reproducible from the notebooks.
+AI tools assisted with restructuring the project, reviewing notebook methodology, improving documentation, and generating parts of the reproducibility scaffold. The student remains responsible for understanding, verifying and defending every method, data transformation, parameter choice and result. All empirical claims must be reproduced against the official PPIP/OCDS files and checked against source records. Synthetic fixture results must be identified as software tests, not empirical findings. Any use of AI assistance should be disclosed in accordance with the lecturer's instructions and university policy.

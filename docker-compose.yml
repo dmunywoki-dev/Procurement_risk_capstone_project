@@ -1,7 +1,13 @@
 services:
-  ppip-api:
+  tgee-api:
     build: .
-    container_name: ppip-procurement-api
+    container_name: tgee-procurement-api
     ports:
       - "8000:8000"
+    environment:
+      START_API: "1"
+      API_HOST: "0.0.0.0"
+      API_PORT: "8000"
+    volumes:
+      - ./artifacts:/app/artifacts:ro
     restart: unless-stopped

@@ -1,86 +1,128 @@
-# Kenya PPIP Procurement Screening
+# DSA 8401 Capstone — Kenya PPIP Procurement Integrity TGEE
 
-**DSA 8401 – Applied Machine Learning Capstone**  
-**Student:** Dean Maingi Munywoki  
-**Programme:** MSc Data Science & Analytics, Strathmore University
+**Student:** Dean Maingi Munywoki (113719)  
+**Programme:** MSc Data Science & Analytics, Strathmore University  
+**Project:** Temporal Graph-Enhanced Ensemble for procurement-integrity risk prioritisation
 
-## What the project does
+## 1. What this project does
 
-This project uses Kenya's Public Procurement Information Portal (PPIP) OCDS data to rank procurement processes whose tender details look unusual compared with earlier records. The ranking is intended to help a reviewer decide what to examine first. It does not determine whether a procurement process is corrupt or unlawful.
+This capstone builds a reproducible screening prototype over Kenya's PPIP/Open Contracting Data Standard (OCDS) procurement process records. The Temporal Graph-Enhanced Ensemble (TGEE) combines:
 
-The work follows the practical sequence used in the Applied Machine Learning course: inspect the data, clean it, check for leakage, build a preprocessing and modelling pipeline, evaluate the result, and serve the model through an API.
+- **Structured tabular anomalies:** procurement method, tender duration, KES-denominated award values, tenderer disclosure, and procurement category.
+- **Tender-text novelty:** TF-IDF / truncated-SVD representation of available titles and descriptions.
+- **Temporal deviations:** current tender duration and award value compared with prior records in the same method/category stratum.
+- **Buyer-supplier graph history:** prior buyer-supplier recurrence, supplier reach and concentration features computed before the current process updates the relationship history.
+- **Conditional bidder co-participation:** a hypergraph-inspired co-bidding branch that is enabled only when enough multi-tenderer identities are disclosed and linkable.
 
-## Notebooks
+The output is a relative review-priority score and a queue for human inspection. It is **not** a probability of fraud and does not establish corruption, collusion or illegality.
 
-Run the notebooks in this order:
+## 2. Important methodological corrections
 
-| Notebook | Work |
-|---|---|
-| `01_data_audit.ipynb` | Downloads the PPIP OCDS file, reads the compiled processes and checks data quality. |
-| `02_data_preparation.ipynb` | Cleans tender fields and creates the features used by the model. |
-| `03_model_training.ipynb` | Fits Isolation Forest, checks ranking stability and records the experiment in MLflow. |
-| `04_evaluation_and_monitoring.ipynb` | Summarises the holdout ranking and compares training and later-period feature distributions. |
-| `05_fastapi_service.ipynb` | Loads the saved model, tests the API and starts the FastAPI service. |
+The submitted TGEE notebook used a `is_high_risk` target generated from the same red-flag and graph variables later supplied to supervised models. It also calculated network features across the full dataset before a random train/test split. Those choices make the reported classifier metrics unsuitable as evidence of fraud detection.
 
-The notebooks contain the project code. There is no separate notebook source library and no generated Python module tree to maintain.
+This rebuilt project therefore:
 
-## How the course practicals are used
+1. uses a chronological holdout rather than a random stratified split;
+2. calculates temporal and graph-history features from prior records only;
+3. keeps missing tenderer identities unknown rather than converting them to zero bidders;
+4. aggregates award amounts only where the source currency is explicitly KES;
+5. treats Benford's Law as an exploratory diagnostic, not evidence of manipulation;
+6. makes unsupervised anomaly ranking the primary empirical output because verified integrity labels are unavailable;
+7. retains a secondary supervised stacking experiment only as agreement with a transparent, rule-generated **proxy** label; it must not be described as validated fraud prediction;
+8. does not claim a GCN: this implementation uses classical anomaly detectors and graph/co-participation statistics.
 
-| Course practical | Applied in this project |
-|---|---|
-| Lab 2 – messy data and leakage-safe features | Missingness and duplicate checks, date and value cleaning, feature construction and exclusion of post-award fields. |
-| Fraud MLOps | A fitted scikit-learn pipeline, MLflow experiment logging, FastAPI scoring and Docker deployment. |
-| MLflow Simple | Recording model settings and diagnostic results for later review. |
-| FastAPI and drift practical | API checks, batch scoring and a comparison of training and later-period feature distributions. |
+The uploaded research proposal is preserved in `docs/Procurement_Integrity_Proposal_Final.pdf`. A bidder-hypergraph neural model or GCN is not implemented in this capstone build; the optional co-participation features are a conditional, non-neural precursor.
 
-The class fraud practical uses a labelled mobile-money dataset and evaluates classifiers with F1. The public PPIP snapshot does not provide verified integrity labels, so this project uses anomaly ranking instead. That is a change required by the data, not a claim that an unsupervised model is a substitute for a labelled fraud classifier.
+## 3. Project structure
 
-## Data
+```text
+DSA8401_Procurement_Integrity_TGEE/
+├── notebooks/
+│   ├── 01_TGEE_End_to_End.ipynb
+│   └── 02_FastAPI_Model_Service.ipynb
+├── data/
+│   ├── raw/                    # Place official PPIP/OCDS data here
+│   ├── sample/                 # Synthetic software smoke-test fixture only
+│   └── processed/              # Generated feature and score files
+├── artifacts/                  # Saved model bundle and run metadata
+├── reports/
+│   ├── FINAL_REPORT.md
+│   ├── PRESENTATION_SLIDES.md
+│   ├── figures/
+│   └── tables/
+├── docs/                       # Exam brief, proposal and revision notes
+├── run_pipeline.sh
+├── run_api.sh
+├── Dockerfile
+└── docker-compose.yml
+```
 
-The source is the [PPIP OCDS portal](https://tenders.go.ke/ocds). The [OCP Data Registry profile](https://data.open-contracting.org/en/publication/147) provides an all-time compressed JSONL download. The current profile covers July 2018 to October 2026 and reports 262,961 tender objects but no tenderer objects. The profile also identifies empty award and contract arrays, buyer and supplier identifier issues, and extreme values in contract and award amounts.
+Core implementation logic is kept in Jupyter notebooks. Shell scripts are orchestration wrappers.
 
-Notebook 1 keeps the original `.jsonl.gz` file in `data/raw/` and writes a process-level CSV to `data/processed/`. The archive is not included in this project folder; it is downloaded when the first notebook runs. The source profile does not show a dataset licence, so check the current terms before redistributing the downloaded data.
+## 4. Data setup
 
-The data have no verified fraud or corruption outcome label. Unlabelled processes are not treated as legitimate examples. For that reason, the real-data model is unsupervised and reports relative anomaly percentiles, not fraud probabilities.
+The end-to-end notebook accepts:
 
-## Set up
+- OCDS JSON packages containing a top-level `releases` array (e.g. `tender-releases-*.json`);
+- JSON Lines (`.jsonl`); or
+- gzip-compressed JSON Lines (`.jsonl.gz`).
 
-Python 3.11 is recommended.
+Copy the official files into `data/raw/`. Do not place unrelated JSON files in that folder. The notebook records a SHA-256 hash and basic file provenance for each source.
 
 ```bash
-python3.11 -m venv .venv
+mkdir -p data/raw
+# Copy official downloaded PPIP/OCDS files into data/raw/
+```
+
+When `data/raw/` is empty, the notebook automatically selects `data/sample/synthetic_ocds_releases.json` for a deterministic smoke test. The notebook prints a warning. Synthetic results must never be presented as empirical PPIP findings.
+
+**Data-handling decisions:**
+
+- One latest release snapshot is retained per OCID for retrospective process-level analysis.
+- `event_date` uses release date, falling back to tender start date.
+- Tenderer counts are considered observed only when identifiable tenderer parties are published.
+- Award values enter the KES value features only where currency is explicitly `KES`.
+- Buyer / supplier matching uses source IDs, falling back to exact normalised names. Fuzzy entity matching is not silently performed.
+
+## 5. Setup (Python 3.11–3.13)
+
+```bash
+python3 -m venv .venv
 source .venv/bin/activate
-pip install --upgrade pip
+python -m pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-Run the full data and modelling workflow:
+## 6. Run the capstone pipeline
+
+From the project root:
 
 ```bash
 bash run_pipeline.sh
 ```
 
-The first notebook needs internet access to download the source. If you already have the official compressed JSONL file, place it at `data/raw/ppip_ocds_all_time.jsonl.gz` before running the notebooks.
+Or open `notebooks/01_TGEE_End_to_End.ipynb` in Jupyter and run all cells in order.
 
-You can also open Jupyter and run notebooks 1–4 one by one:
+The pipeline produces:
 
-```bash
-jupyter notebook
-```
+- `data/processed/scored_process_snapshots.csv`
+- `data/processed/api_prepared_features.csv` (prepared API input contract)
+- `reports/holdout_review_queue.csv`
+- `reports/tables/data_quality_audit.csv`
+- `reports/tables/unsupervised_model_comparison.csv`
+- `reports/tables/branch_ablation.csv`
+- `reports/tables/bipartite_graph_diagnostics.csv`
+- `reports/tables/benford_by_method.csv`
+- `reports/tables/proxy_label_model_comparison.csv` (when proxy modelling is feasible)
+- `artifacts/tgee_model_bundle.joblib`
+- `artifacts/run_metadata.json`
+- `reports/figures/*.png`
 
-## MLflow
+Use the review queue as an analyst shortlist. A high score means that the record is unusual relative to the model's training reference, not that misconduct occurred.
 
-Notebook 3 records the model parameters and diagnostic metrics locally. To view the experiment:
+## 7. API and Docker
 
-```bash
-mlflow ui --backend-store-uri sqlite:///mlflow.db
-```
-
-Open `http://127.0.0.1:5000`.
-
-## Run the API
-
-After the model has been trained:
+Run the API after executing the pipeline:
 
 ```bash
 bash run_api.sh
@@ -88,38 +130,43 @@ bash run_api.sh
 
 Open `http://127.0.0.1:8000/docs`.
 
-The API accepts the same prepared feature columns used by the model. It provides `/health`, `/model-info`, `/score` and `/score/batch`. For a first test, run the API checks in notebook 5 before starting the server.
+Endpoints:
 
-## Docker
+- `GET /health`
+- `GET /model-info`
+- `POST /score`
+- `POST /score/batch`
 
-Build and run the API after `run_pipeline.sh` has created `artifacts/ppip_anomaly_model.joblib`:
+The API accepts **prepared point-in-time feature records**, not raw nested OCDS releases. Graph and temporal history must be generated by the same feature-engineering logic as notebook 1. This prevents the service from pretending it can reconstruct historical context from one isolated raw tender.
+
+Docker:
 
 ```bash
 docker compose up --build
 ```
 
-The API will be available at `http://localhost:8000/docs`.
+Train the model before starting the API container. Generated `artifacts/` are mounted read-only.
 
-## Project outputs
+## 8. How to interpret evaluation
 
-- `data/raw/` – downloaded official PPIP JSONL archive.
-- `data/processed/` – process-level and feature-level CSV files.
-- `artifacts/` – trained scikit-learn pipeline.
-- `reports/` – audit tables, evaluation tables, review shortlist and plots.
-- `mlflow.db` – local experiment tracking database.
+Because no verified fraud/corruption target is available in the public records, the main evaluation does not claim predictive accuracy. It reports:
 
-These files are generated when the notebooks run and are not required in the submitted source folder.
+- chronological holdout coverage and score distributions;
+- score-rank correlation and top-K overlap against tabular-only anomaly baselines (LOF uses a fixed seeded sample for scale);
+- branch ablation sensitivity;
+- random-seed stability;
+- data quality and tenderer-identity coverage.
 
-## How to read the scores
+The optional proxy classifier reports F1 / ROC-AUC / PR-AUC only against a deterministic rule-derived proxy flag. These results are **proxy-rule agreement**, not validation against confirmed procurement misconduct. For genuine supervised validation, obtain a lawful, independently adjudicated and sufficiently representative set of investigation/audit outcomes.
 
-The model is fitted on the earlier 70% of processes and checked on the later 30%, ordered by tender start date. Since the source is a compiled snapshot rather than the full original publication history, this is a chronological distribution check, not a strict reconstruction of what was publicly known at each historical moment.
+## 9. Limitations and next work
 
-The `high`, `review` and `routine` bands are based on the 98th and 90th percentiles of the training anomaly scores. They are only a way to organise manual review. No precision, recall, F1-score, ROC-AUC or AUPRC is reported because verified outcome labels are not available.
+The source is a compiled public snapshot and may not reproduce exactly what was known at each historical moment. Public disclosure may be incomplete; an absent tenderer, award or contract field is not evidence that the event did not occur. Exact-name entity resolution can split the same supplier across spelling variants or combine unrelated entities with similar names. Current review bands are capacity settings and should be confirmed with procurement auditors.
 
-## References
+The next research stage is to obtain verified review outcomes, assess buyer-disjoint and supplier-disjoint holdouts, add calibrated ranking metrics such as Precision@K / Recall@K / NDCG@K where valid relevance labels exist, and implement a true graph/hypergraph neural model only if data coverage and compute justify it.
 
-- Lee Bundi, [AML_Book-Data course repository](https://github.com/NUELBUNDI/AML_Book-Data), including the messy-data and leakage-safe feature practical, the MLflow examples, the FastAPI practical and drift-monitoring exercise.
-- Open Contracting Partnership, [Kenya: Public Procurement Regulatory Authority (PPRA) dataset profile](https://data.open-contracting.org/en/publication/147).
-- Public Procurement Information Portal, [OCDS data](https://tenders.go.ke/ocds).
+## 10. References
 
-See `reports/FINAL_REPORT.md` for the project write-up and `AI_USE.md` for the use of AI tools during preparation.
+- Open Contracting Partnership. Kenya: Public Procurement Regulatory Authority dataset profile. https://data.open-contracting.org/en/publication/147
+- Public Procurement Information Portal. OCDS data. https://tenders.go.ke/ocds
+- Strathmore University, DSA 8401 Applied Machine Learning course materials and exam brief (see `docs/`).

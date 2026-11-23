@@ -1,66 +1,83 @@
-# Procurement Risk Screening Using Kenya PPIP OCDS Data
+# Final Capstone Report
 
-**DSA 8401 – Applied Machine Learning Capstone**  
-**Student:** Dean Maingi Munywoki  
+## Temporal Graph-Enhanced Ensemble for Procurement-Integrity Risk Prioritisation in Kenya
+
+**DSA 8401 — Applied Machine Learning Capstone**  
+**Student:** Dean Maingi Munywoki (113719)  
 **Programme:** MSc Data Science & Analytics, Strathmore University
 
-## 1. Introduction
+> **Reporting status:** The project package includes a synthetic fixture for a deterministic software smoke test. No official PPIP raw data files were supplied with the two uploads. Therefore, this report describes the implemented methodology and specifies where actual empirical results must be inserted after running the project on official source files. Do not treat the synthetic fixture's output as empirical Kenya procurement findings.
 
-Public procurement agencies publish large amounts of information about tenders and contract awards. Reviewing every process in detail takes time. This project examines whether machine learning can help organise procurement records for further review by highlighting tender profiles that differ from the wider dataset.
+## 1. Problem and intended use
 
-The project is a screening tool. An unusual record is not necessarily improper, and the model does not make findings of fraud, corruption or collusion.
+Public procurement datasets contain large numbers of process records, while detailed manual review is resource-intensive. This project develops a reproducible machine-learning workflow that prioritises unusual process snapshots for human examination. It is a decision-support prototype; it does not make legal findings or determine whether a procurement process is fraudulent, corrupt or collusive.
 
-## 2. Data source
+## 2. Data and unit of analysis
 
-The data come from the Public Procurement Information Portal (PPIP), published in the Open Contracting Data Standard (OCDS) format. The OCP Data Registry profile provides an all-time compressed JSONL file. Its current profile reports coverage from July 2018 to October 2026, 262,961 tender objects and no disclosed tenderer objects. It also notes missing buyer and supplier identifiers, empty award and contract arrays and extreme values in some award and contract value fields.
+The intended empirical source is Kenya's PPIP OCDS publication. The notebook ingests release packages, JSONL and gzip JSONL, records source hashes and extracts buyer, tender, party, award, supplier and contract attributes. The analysis retains the latest release snapshot per OCID to create one retrospective process-level row. Where release date is missing, tender start date is used as the event timestamp.
 
-The first notebook downloads the archive, records its SHA-256 hash and converts each compiled process into a row. It checks duplicate OCIDs, missing values, invalid records and date coverage. The downloaded source is not included in the project folder.
+The public data may contain missing buyer/supplier identifiers, incomplete tenderer disclosure, missing values, mixed currencies and incomplete award/contract fields. The notebook quantifies these issues in `data_quality_audit.csv`. Amounts enter KES-specific features only when the currency is explicitly KES. An absent tenderer record is treated as unknown rather than zero competition.
 
-The dataset does not provide verified labels for fraud or corruption. The absence of an adverse finding cannot be interpreted as a clean procurement process. The project therefore does not create a negative class from unlabelled records.
+**Empirical dataset details to insert after the official run:**
 
-## 3. Data preparation
+- Downloaded source package names and SHA-256 hashes: see `artifacts/run_metadata.json`.
+- Number of source release rows: see `artifacts/run_metadata.json`.
+- Number of process snapshots retained: see `artifacts/run_metadata.json`.
+- Event-date coverage, identifier coverage and KES-value coverage: see `reports/tables/data_quality_audit.csv`.
 
-The second notebook standardises procurement method, category and county values. It keeps missing values visible and only treats a monetary amount as KES when the source currency is explicitly KES. It derives tender duration, log-transformed estimated value and simple calendar features. Tender titles and descriptions are represented using TF-IDF.
+## 3. Feature engineering
 
-The modelling inputs are limited to tender-stage information. Award suppliers, contract values, award results and contract dates are excluded. Buyer and supplier identifiers are retained in the cleaned table for reference but are not used as predictors.
+The project builds structured procurement attributes, title/description text, historical deviations and relational features. Temporal features compare a process with prior records in the same procurement-method/category stratum using exponentially weighted historical baselines. Buyer-supplier graph features are computed before the current process updates the historical relationship state. They include prior pair recurrence, prior supplier reach, prior buyer activity and supplier concentration across prior buyer relationships.
 
-## 4. Modelling
+A conditional bidder co-participation branch is enabled only when at least 5% of records have two or more identifiable tenderers, at least 50 such records exist, and at least 10 bidder entities are linkable. Otherwise, that branch is disabled. Missing competitors are not inferred.
 
-The workflow follows the course practicals on messy data, leakage-safe features, experiment tracking and model serving. The supervised fraud examples in the course use a known target. PPIP does not provide an equivalent verified label, so the model choice has been adapted to the data rather than assigning labels to unreviewed procurements.
+## 4. TGEE architecture
 
+The TGEE composite combines percentile-normalised component scores from available branches:
 
-The model is an Isolation Forest inside a scikit-learn Pipeline. The preprocessing stage imputes numeric values, scales numeric fields, one-hot encodes categories and vectorises tender text. Fitting the preprocessing and model together helps ensure that the same transformations are applied during training and API scoring.
+1. structured tabular Isolation Forest;
+2. tender-text novelty using TF-IDF, truncated SVD and Isolation Forest;
+3. temporal deviations from prior records;
+4. buyer-supplier historical graph features; and
+5. conditional bidder co-participation statistics.
 
-The records are ordered by tender start date. The earlier 70% are used for fitting and the later 30% are held out for a chronological check. The model assigns an anomaly score to each later record. Those scores are converted to percentiles against the training score distribution.
+The default branch weights are fixed in the notebook and renormalised if a branch is unavailable. Review and high-priority cut-offs are calculated from the earlier training period only. The final score is a relative percentile-style prioritisation value, not a calibrated fraud probability.
 
-The experiment is recorded in MLflow with the model settings, sample sizes and diagnostic measures. The notebook also fits models with different random seeds and compares their rankings using Spearman correlation. This checks whether the ordering is sensitive to random initialisation; it is not a measure of predictive accuracy.
+## 5. Evaluation design
 
-## 5. Evaluation and monitoring
+Records are split chronologically using `event_date`. All feature history is constructed in event order, and the later time block is held out. Preprocessing, detector fitting, text vocabulary, score-reference distributions and thresholds are learned from the earlier block.
 
-The evaluation notebook summarises the number of records in each review band, plots the holdout score distribution and compares numeric feature distributions between the earlier and later periods. A top-50 list is saved for manual examination.
+Because the public records do not supply verified fraud/corruption labels, the main evaluation reports score stability and ranking diagnostics rather than accuracy metrics. The notebook compares the TGEE ranking with tabular-only Isolation Forest and Local Outlier Factor using Spearman rank correlation, top-K overlap, branch ablation and random-seed sensitivity.
 
-The project does not report precision, recall, F1-score, ROC-AUC or AUPRC because the source does not contain verified integrity outcomes. These metrics would be misleading without a reliable reference label set.
+An optional supervised experiment generates a transparent `proxy_review_flag` from four review indicators. The classifier predictors exclude the direct ingredients of those rules. Its F1, ROC-AUC and PR-AUC indicate agreement with the generated proxy rubric only. They are not evidence that the model detects actual fraud.
 
-## 6. API and deployment
+## 6. Results
 
-The final notebook exposes the fitted pipeline through FastAPI. The service provides health, model information, single-record scoring and batch scoring endpoints. It accepts the feature columns generated by the preparation notebook. The same saved pipeline performs preprocessing and anomaly scoring.
+Populate this section only after running the notebook against official PPIP/OCDS files.
 
-The project includes a Dockerfile and Docker Compose configuration. The model must be trained before the API image is built.
+| Result | Source output |
+|---|---|
+| Process snapshots and date coverage | `artifacts/run_metadata.json` |
+| Missingness, bidder coverage and KES-value coverage | `reports/tables/data_quality_audit.csv` |
+| Active branches and weights | `artifacts/run_metadata.json` |
+| Unsupervised baseline ranking comparison | `reports/tables/unsupervised_model_comparison.csv` |
+| Branch ablation | `reports/tables/branch_ablation.csv` |
+| Random-seed sensitivity | `reports/tables/seed_sensitivity.csv` |
+| Review queue | `reports/holdout_review_queue.csv` |
+| Proxy-rule agreement (not fraud validation) | `reports/tables/proxy_label_model_comparison.csv` |
 
-## 7. Limitations
+No numerical empirical findings are inserted here because the official source data were not included in the submitted uploads.
 
-The OCP download is a compiled snapshot. It does not provide the full history of every release and cannot show exactly when each field first became public. The date split is therefore a chronological check based on tender-period start date, not a strict point-in-time evaluation.
+## 7. Deployment
 
-The registry profile reports no tenderer objects. A bidder hypergraph cannot be built from missing competitor identities, and awarded suppliers are not a substitute for all bidders. The current data also do not support supervised learning against verified integrity findings.
+The serialized model bundle is loaded by a FastAPI application defined in notebook 2. The service provides health, model-information, single-record and batch scoring endpoints. It accepts point-in-time engineered features produced by the training pipeline. The API returns branch percentiles, a composite score and a review band. It does not accept a raw isolated OCDS object and pretend to reconstruct graph history.
 
-The anomaly ranking may reflect procurement category, market structure, missing disclosure or other legitimate differences. It should only be used to direct further checks by a person with access to the underlying source records.
+## 8. Limitations and ethics
 
-## 8. Conclusion
+Anomaly scores are sensitive to data quality, missing disclosure, legitimate differences between categories and market structure. Supplier recurrence or centrality is not proof of collusion. Exact-name entity matching can be incomplete or erroneous. A compiled snapshot does not guarantee point-in-time reconstruction of all historically public information. Benford deviations can arise for reasons unrelated to manipulation.
 
-The project applies the main steps practised in Applied Machine Learning to Kenya's PPIP data: data audit, cleaning, leakage-aware feature selection, a scikit-learn pipeline, model fitting, evaluation, experiment tracking and API deployment. Its main output is a ranked review list. Establishing whether the ranking identifies actual procurement problems requires independently verified findings and a more complete history of source releases.
+Scores must not be used for automatic exclusion, sanction, accusation or adverse action. Human reviewers should examine the underlying procurement documents, record reasons for review outcomes and independently verify any concern. Sensitive identifiers should be handled under applicable institutional and legal controls.
 
-## References
+## 9. Conclusion
 
-- Lee Bundi. *AML_Book-Data*. DSA 8401 Applied Machine Learning course repository. https://github.com/NUELBUNDI/AML_Book-Data
-- Open Contracting Partnership. *Kenya: Public Procurement Regulatory Authority (PPRA)*. https://data.open-contracting.org/en/publication/147
-- Public Procurement Information Portal. *OCDS data*. https://tenders.go.ke/ocds
+The capstone provides a reproducible temporal and relational anomaly-prioritisation workflow with text and conditional bidder co-participation features, model comparison, stability analysis and a model-serving API. Its empirical value depends on running the pipeline on the official source and, for supervised validation, obtaining independent and lawful outcome labels.

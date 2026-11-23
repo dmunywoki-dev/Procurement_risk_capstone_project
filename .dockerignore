@@ -1,8 +1,7 @@
 .venv
-.git
-.ipynb_checkpoints
 __pycache__
-data
-reports
-mlflow.db
-mlruns
+.ipynb_checkpoints
+.git
+data/raw/*
+!data/raw/README.md
+/tmp

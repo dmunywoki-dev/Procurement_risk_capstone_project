@@ -1,1 +1,3 @@
-Place the official `ppip_ocds_all_time.jsonl.gz` archive here, or run notebook 1 to download it.
+# Official PPIP/OCDS source files
+
+Place official OCDS release JSON files (`tender-releases-*.json`), JSONL (`*.jsonl`) or gzip JSONL (`*.jsonl.gz`) in this directory. Keep unrelated JSON files out. The pipeline records SHA-256 hashes. The source archive itself is not included in this repository.
