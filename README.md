@@ -22,31 +22,6 @@ The dataset contains real-world reporting complications: missing values, incompl
 6. **Serving:** FastAPI accepts the versioned prepared-feature contract; Docker packages the service. The API does not infer historical context from a raw isolated tender.
 7. **MLOps and monitoring:** pytest, GitHub Actions, optional MLflow experiment tracking and model registry, PSI/KS feature drift, group-level review-band diagnostics and fail-closed promotion checks.
 
-## Repository layout
-
-~~~text
-notebooks/
-  01_TGEE_End_to_End.ipynb       Main training and evaluation pipeline
-  02_FastAPI_Model_Service.ipynb API contract and TestClient demonstration
-api_service.py                   Production FastAPI scoring service
-mlflow_tgee_model.py             MLflow PyFunc wrapper
-scripts/
-  build_report.py                Build report/slides from official run outputs
-  check_notebooks.py             Notebook structure and Python syntax checks
-  monitor_drift.py               PSI / KS and operational group diagnostics
-  preflight_submission.py        Submission completeness check
-  promote_model.py               Fail-closed MLflow champion promotion gate
-  track_mlflow.py                MLflow run logging and model registration
-tests/                            API, monitoring and report tests
-data/raw/                         Place the official PPIP/OCDS source here
-data/sample/                      Synthetic software smoke-test fixture only
-data/processed/fy2025_2026/       Generated prepared features and scores
-artifacts/fy2025_2026/            Serialized FY2025/2026 model and metadata
-reports/fy2025_2026/              Empirical tables, figures and review queue
-docs/                              Method, governance and submission documentation
-.github/workflows/ci.yml           Automated test and Docker build
-~~~
-
 ## Data setup
 
 Place the official FY2025/2026 source file used by the project in **data/raw/**. The current local analysis uses the explicit source file name **2025_2026.json**. Do not mix unrelated extracts into the raw-data directory.
@@ -144,20 +119,4 @@ Without independently verified labels, label drift and concept drift cannot be m
 
 The selected techniques fit the available data and intended use. Isolation Forest, LOF and GMM provide complementary anomaly references; PCA is a diagnostic; TF-IDF/SVD represents available tender descriptions; and prior-only graph statistics add relational context. The project excludes supervised fraud classifiers because there is no independent fraud target; MLP/CNN/RNN/Transformer models because the task and data do not justify them; and lifecycle sequence models because the FY extract has one release per OCID. See docs/TECHNIQUE_JUSTIFICATION.md.
 
-## Course and reference alignment
 
-The course practical repository used for comparison is https://github.com/NUELBUNDI/AML_Book-Data. The procurement capstone adapts relevant practical patterns from data preparation, evaluation, ensembles, unsupervised learning, FastAPI, Docker, MLflow, testing and drift monitoring. It does not copy unrelated image or time-series exercises. See docs/REFERENCE_REPO_ALIGNMENT.md and docs/DSA_8401_CAPSTONE_EXAM_BRIEF.md.
-
-## Submission checklist
-
-Before submitting, run the official data pipeline, inspect the generated report and review queue, run tests, build and exercise Docker, disclose AI assistance in AI_USE.md, and run:
-
-~~~bash
-python scripts/preflight_submission.py
-~~~
-
-The preflight intentionally refuses to label a synthetic-fixture run as an official submission. A reviewer must be able to reproduce the pipeline using the official source files placed in data/raw/.
-
-## Responsible-use statement
-
-This system supports human review only. Do not publish supplier allegations based on anomaly scores, use the ranking to automatically exclude bidders, or interpret supplier recurrence as collusion. Reviewers should examine original procurement documents, independently corroborate concerns and record outcomes. Raw procurement data, personal data and access credentials must not be committed to Git.

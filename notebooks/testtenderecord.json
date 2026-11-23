@@ -1,0 +1,43 @@
+{
+  "record_id": "20250701092242-KWSC/EOI/01/2025-2026",
+  "ocid": "ocds-5whusi-248121-KWSC/EOI/01/2025-2026",
+  "context": {
+    "buyer_name": "KISUMU WATER AND SANITATION COMPANY LIMITED"
+  },
+  "tabular": {
+    "duration_days": null,
+    "log_award_value_kes": null,
+    "awards_count": 0,
+    "contracts_count": 0,
+    "invalid_tender_period": 1,
+    "is_direct": 0,
+    "is_open": 0,
+    "is_selective": 1,
+    "release_month": 7,
+    "release_dow": 1,
+    "fiscal_year": 2025,
+    "flag_fy_end": 0,
+    "is_emergency_title": 0,
+    "is_construction_title": 0,
+    "is_it_title": 0,
+    "is_medical_title": 0,
+    "procurement_method": "selective",
+    "category": "services",
+    "main_procurement_category": "services"
+  },
+  "temporal": {
+    "duration_historical_abs_z": null,
+    "value_historical_abs_z": null,
+    "temporal_history_available": 0
+  },
+  "graph": {
+    "buyer_prior_supplier_count": 0,
+    "buyer_prior_award_count": 0,
+    "buyer_supplier_prior_count": 0,
+    "supplier_prior_buyer_count": 0,
+    "supplier_prior_award_count": 0,
+    "supplier_prior_buyer_hhi": 0.0,
+    "pair_prior_share": 0.0
+  },
+  "text": "EXPRESSION OF INTEREST FOR PROVISION OF ORGANIZATIONAL REVIEW AND JOB EVALUATION CONSULTANCY SERVICES"
+}
