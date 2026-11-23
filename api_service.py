@@ -1,198 +1,253 @@
-#!/usr/bin/env python
-# coding: utf-8
+#!/usr/bin/env python3
+"""FastAPI service for prepared, point-in-time TGEE feature records.
 
-# # DSA 8401 TGEE — FastAPI scoring service
-# 
-# This notebook loads `artifacts/tgee_model_bundle.joblib` created by `01_TGEE_End_to_End.ipynb` and exposes single-record and batch scoring endpoints.
-# 
-# **Input contract:** the API accepts a *prepared feature record* produced by the same point-in-time feature-engineering process as the training notebook. It does not accept a raw OCDS release and independently reconstruct graph history; clients must supply the temporal and graph-history feature fields. The API returns percentile scores and review bands, **not fraud probabilities**.
+The endpoint returns a relative review-priority percentile. It is not a fraud
+probability, an allegation, or a substitute for an independent human review.
+"""
+from __future__ import annotations
 
-# In[1]:
-
-
-import os, json
+import os
 from pathlib import Path
-from typing import Optional, Any
+from typing import Any, Optional
+
+import joblib
 import numpy as np
 import pandas as pd
-import joblib
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel, Field
-from fastapi.testclient import TestClient
+from pydantic import BaseModel, ConfigDict, Field
 
-ROOT=Path.cwd()
-if not (ROOT/'artifacts').exists() and (ROOT.parent/'artifacts').exists(): ROOT=ROOT.parent
-BUNDLE_PATH=ROOT/'artifacts'/'tgee_model_bundle.joblib'
-if not BUNDLE_PATH.exists():
-    raise FileNotFoundError('Model bundle not found. Run notebooks/01_TGEE_End_to_End.ipynb first.')
-bundle=joblib.load(BUNDLE_PATH)
 
-app=FastAPI(
-    title='Kenya PPIP Procurement Integrity TGEE API',
-    version=bundle.get('model_version','1.0.0'),
-    description='Human-review prioritisation scores. Not a fraud determination or probability.'
+PROJECT_ROOT = Path(__file__).resolve().parent
+DEFAULT_BUNDLE = (
+    PROJECT_ROOT / "artifacts" / "fy2025_2026"
+    / "tgee_fy2025_2026_model_bundle.joblib"
 )
 
+
 class PreparedRecord(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     record_id: Optional[str] = None
     ocid: Optional[str] = None
     context: dict[str, Any] = Field(default_factory=dict)
     tabular: dict[str, Any]
     temporal: dict[str, Any]
     graph: dict[str, Any]
-    text: Optional[str] = ''
+    text: str = ""
     hypergraph: Optional[dict[str, Any]] = None
 
+
 class BatchRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     records: list[PreparedRecord] = Field(min_length=1, max_length=1000)
 
 
-def _percentile(reference, value):
-    ref=np.asarray(reference,dtype=float)
-    ref=ref[np.isfinite(ref)]
-    if len(ref)==0 or value is None or not np.isfinite(float(value)):
-        return 0.5
-    return float(np.searchsorted(np.sort(ref),float(value),side='right')/len(ref))
+def _load_bundle(path: str | Path) -> dict[str, Any]:
+    bundle_path = Path(path).expanduser().resolve()
+    if not bundle_path.is_file():
+        raise FileNotFoundError(
+            f"Model bundle not found: {bundle_path}. Run the FY2025/2026 "
+            "training pipeline first."
+        )
+    bundle = joblib.load(bundle_path)
+    required = {
+        "tabular_model", "tabular_feature_cols", "tabular_reference",
+        "temporal_model", "temporal_feature_cols", "temporal_reference",
+        "graph_model", "graph_feature_cols", "graph_reference",
+        "weights", "review_threshold", "high_threshold",
+    }
+    missing = sorted(required.difference(bundle))
+    if missing:
+        raise ValueError(f"Model bundle is missing required keys: {missing}")
+    return bundle
 
 
-def score_one(payload: PreparedRecord):
-    # Construct a one-row DataFrame in the exact training feature order.
-    tab_cols=bundle['tabular_feature_cols']
-    tab_row={k:payload.tabular.get(k,None) for k in tab_cols}
-    tab_frame=pd.DataFrame([tab_row],columns=tab_cols)
-    tab_raw=float(-bundle['tabular_model'].score_samples(tab_frame)[0])
-    tab_score=_percentile(bundle['tabular_reference'],tab_raw)
+def _percentile(reference: Any, value: float) -> float:
+    values = np.asarray(reference, dtype=float)
+    values = values[np.isfinite(values)]
+    if values.size == 0 or not np.isfinite(value):
+        raise ValueError("The model score reference is empty or non-finite.")
+    return float(np.searchsorted(np.sort(values), value, side="right") / values.size)
 
-    temporal_cols=bundle['temporal_feature_cols']
-    temporal_row={k:payload.temporal.get(k,None) for k in temporal_cols}
-    temporal_frame=pd.DataFrame([temporal_row],columns=temporal_cols)
-    temp_raw=float(-bundle['temporal_model'].score_samples(temporal_frame)[0])
-    temp_score=_percentile(bundle['temporal_reference'],temp_raw)
 
-    graph_cols=bundle['graph_feature_cols']
-    graph_row={k:payload.graph.get(k,None) for k in graph_cols}
-    graph_frame=pd.DataFrame([graph_row],columns=graph_cols)
-    graph_raw=float(-bundle['graph_model'].score_samples(graph_frame)[0])
-    graph_score=_percentile(bundle['graph_reference'],graph_raw)
+def _score_branch(model: Any, columns: list[str], values: dict[str, Any],
+                  reference: Any, group_name: str) -> float:
+    missing = [column for column in columns if column not in values]
+    if missing:
+        raise ValueError(f"Missing {group_name} features: {missing}")
+    frame = pd.DataFrame([{column: values[column] for column in columns}],
+                         columns=columns)
+    raw = float(-model.score_samples(frame)[0])
+    if not np.isfinite(raw):
+        raise ValueError(f"{group_name} model returned a non-finite score.")
+    return _percentile(reference, raw)
 
-    components={'tabular':tab_score,'temporal':temp_score,'graph':graph_score}
-    if bundle.get('text_active') and payload.text:
-        X=bundle['text_vectorizer'].transform([payload.text])
-        X=bundle['text_svd'].transform(X)
-        raw=float(-bundle['text_detector'].score_samples(X)[0])
-        components['text']=_percentile(bundle['text_reference'],raw)
-    if bundle.get('hypergraph_active') and payload.hypergraph is not None:
-        hcols=bundle['hypergraph_feature_cols']
-        hrow={k:payload.hypergraph.get(k,None) for k in hcols}
-        hframe=pd.DataFrame([hrow],columns=hcols)
-        raw=float(-bundle['hypergraph_model'].score_samples(hframe)[0])
-        components['hypergraph']=_percentile(bundle['hypergraph_reference'],raw)
 
-    weights=bundle['weights']
-    available={k:v for k,v in weights.items() if k in components}
-    weight_sum=sum(available.values()) or 1.0
-    score=float(sum(components[k]*available[k] for k in available)/weight_sum)
-    if score >= bundle['high_threshold']:
-        band='high_priority'
-    elif score >= bundle['review_threshold']:
-        band='review'
+def score_prepared_record(bundle: dict[str, Any],
+                          payload: dict[str, Any]) -> dict[str, Any]:
+    """Score one dictionary matching the versioned prepared-feature contract."""
+    required_groups = ("tabular", "temporal", "graph")
+    for group in required_groups:
+        if not isinstance(payload.get(group), dict):
+            raise ValueError(f"'{group}' must be an object of prepared features.")
+
+    components = {
+        "tabular": _score_branch(
+            bundle["tabular_model"], bundle["tabular_feature_cols"],
+            payload["tabular"], bundle["tabular_reference"], "tabular"),
+        "temporal": _score_branch(
+            bundle["temporal_model"], bundle["temporal_feature_cols"],
+            payload["temporal"], bundle["temporal_reference"], "temporal"),
+        "graph": _score_branch(
+            bundle["graph_model"], bundle["graph_feature_cols"],
+            payload["graph"], bundle["graph_reference"], "graph"),
+    }
+
+    if bundle.get("text_active", False):
+        text = payload.get("text", "")
+        if not isinstance(text, str):
+            raise ValueError("'text' must be a string.")
+        vector = bundle["text_vectorizer"].transform([text])
+        vector = bundle["text_svd"].transform(vector)
+        raw = float(-bundle["text_detector"].score_samples(vector)[0])
+        components["text"] = _percentile(bundle["text_reference"], raw)
+
+    if bundle.get("hypergraph_active", False):
+        hypergraph = payload.get("hypergraph")
+        if not isinstance(hypergraph, dict):
+            raise ValueError("This model requires a hypergraph feature object.")
+        components["hypergraph"] = _score_branch(
+            bundle["hypergraph_model"], bundle["hypergraph_feature_cols"],
+            hypergraph, bundle["hypergraph_reference"], "hypergraph")
+
+    weights = bundle["weights"]
+    available = {name: float(weight) for name, weight in weights.items()
+                 if name in components and float(weight) > 0}
+    denominator = sum(available.values())
+    if denominator <= 0:
+        raise ValueError("No active model branch has a positive fusion weight.")
+    score = float(sum(components[name] * available[name]
+                      for name in available) / denominator)
+
+    if score >= float(bundle["high_threshold"]):
+        band = "high_priority"
+    elif score >= float(bundle["review_threshold"]):
+        band = "review"
     else:
-        band='routine'
+        band = "routine"
+
     return {
-        'record_id':payload.record_id,'ocid':payload.ocid,
-        'tgee_priority_score':round(score,6),'review_band':band,
-        'component_scores':{k:round(v,6) for k,v in components.items()},
-        'score_semantics':'Relative review-priority percentile; not a fraud probability.',
-        'context':payload.context
+        "record_id": payload.get("record_id"),
+        "ocid": payload.get("ocid"),
+        "tgee_priority_score": round(score, 6),
+        "review_band": band,
+        "component_scores": {k: round(float(v), 6)
+                             for k, v in components.items()},
+        "score_semantics": (
+            "Relative review-priority percentile; not a fraud probability "
+            "or a finding of misconduct."
+        ),
+        "model_version": bundle.get("model_version", "unknown"),
+        "context": payload.get("context", {}),
     }
 
-@app.get('/health')
-def health():
-    return {'status':'ok','model_version':bundle.get('model_version'),
-            'data_mode':bundle.get('data_mode'),'text_active':bundle.get('text_active'),
-            'hypergraph_active':bundle.get('hypergraph_active')}
 
-@app.get('/model-info')
-def model_info():
-    return {
-        'project_name':bundle.get('project_name'),
-        'model_version':bundle.get('model_version'),
-        'active_branches':list(bundle.get('weights',{}).keys()),
-        'weights':bundle.get('weights'),
-        'review_threshold':bundle.get('review_threshold'),
-        'high_threshold':bundle.get('high_threshold'),
-        'hypergraph_coverage':bundle.get('hypergraph_coverage'),
-        'score_semantics':bundle.get('score_semantics')
-    }
+def create_app(model_bundle: Optional[dict[str, Any]] = None,
+               bundle_path: Optional[str | Path] = None) -> FastAPI:
+    """Factory supports injected bundles for deterministic API tests."""
+    path = Path(bundle_path or os.getenv("MODEL_BUNDLE_PATH", DEFAULT_BUNDLE))
+    app = FastAPI(
+        title="Kenya PPIP Procurement Review Prioritisation API",
+        version="2.1.0",
+        description=(
+            "Prepared-feature scoring for human review. Scores are not "
+            "fraud probabilities or legal findings."
+        ),
+    )
+    app.state.model_bundle = model_bundle
+    app.state.bundle_path = path
 
-@app.post('/score')
-def score_endpoint(record: PreparedRecord):
-    try:
-        return score_one(record)
-    except Exception as exc:
-        raise HTTPException(status_code=422, detail=f'Unable to score prepared record: {exc}')
+    def get_bundle() -> dict[str, Any]:
+        if app.state.model_bundle is None:
+            try:
+                app.state.model_bundle = _load_bundle(app.state.bundle_path)
+            except FileNotFoundError as exc:
+                raise HTTPException(status_code=503, detail=str(exc)) from exc
+            except Exception as exc:
+                raise HTTPException(
+                    status_code=503,
+                    detail=f"Unable to load model bundle ({type(exc).__name__}).",
+                ) from exc
+        return app.state.model_bundle
 
-@app.post('/score/batch')
-def score_batch(payload: BatchRequest):
-    try:
-        return {'count':len(payload.records),'results':[score_one(r) for r in payload.records]}
-    except Exception as exc:
-        raise HTTPException(status_code=422, detail=f'Unable to score batch: {exc}')
+    @app.get("/health")
+    def health() -> dict[str, Any]:
+        bundle = get_bundle()
+        return {
+            "status": "ok",
+            "model_version": bundle.get("model_version"),
+            "data_mode": bundle.get("data_mode"),
+            "score_semantics": bundle.get("score_semantics"),
+        }
+
+    @app.get("/model-info")
+    def model_info() -> dict[str, Any]:
+        bundle = get_bundle()
+        return {
+            "project_name": bundle.get("project_name"),
+            "model_version": bundle.get("model_version"),
+            "analysis_period": bundle.get("analysis_period"),
+            "active_branches": list(bundle.get("weights", {}).keys()),
+            "weights": bundle.get("weights"),
+            "review_threshold": bundle.get("review_threshold"),
+            "high_threshold": bundle.get("high_threshold"),
+            "hypergraph_active": bundle.get("hypergraph_active", False),
+            "score_semantics": bundle.get("score_semantics"),
+        }
+
+    @app.post("/score")
+    def score_endpoint(record: PreparedRecord) -> dict[str, Any]:
+        try:
+            return score_prepared_record(get_bundle(), record.model_dump())
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Scoring failed ({type(exc).__name__}).",
+            ) from exc
+
+    @app.post("/score/batch")
+    def score_batch(request: BatchRequest) -> dict[str, Any]:
+        try:
+            bundle = get_bundle()
+            results = [
+                score_prepared_record(bundle, record.model_dump())
+                for record in request.records
+            ]
+            return {"count": len(results), "results": results}
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Batch scoring failed ({type(exc).__name__}).",
+            ) from exc
+
+    return app
 
 
-# ## API smoke test
-
-# In[2]:
+app = create_app()
 
 
-# Build an example request from the latest processed synthetic/empirical feature table.
-scored_path=ROOT/'data'/'processed'/'api_prepared_features.csv'
-if not scored_path.exists():
-    raise FileNotFoundError('Run the end-to-end TGEE notebook before running this API notebook.')
-scored=pd.read_csv(scored_path)
-row=scored.iloc[0]
-
-# The processed score file contains key model inputs; if a categorical value is missing, pass it as null.
-def json_safe(v):
-    if v is None or pd.isna(v):
-        return None
-    if isinstance(v,np.generic):
-        return v.item()
-    return v
-
-request_payload={
-    'record_id':str(row.get('release_id','demo-record')),
-    'ocid':None if pd.isna(row.get('ocid')) else str(row.get('ocid')),
-    'context':{'buyer_name':None if pd.isna(row.get('buyer_name')) else str(row.get('buyer_name'))},
-    'tabular':{k:json_safe(row.get(k)) for k in bundle['tabular_feature_cols'] if k in row.index},
-    'temporal':{k:json_safe(row.get(k)) for k in bundle['temporal_feature_cols'] if k in row.index},
-    'graph':{k:json_safe(row.get(k)) for k in bundle['graph_feature_cols'] if k in row.index},
-    'text':'' if pd.isna(row.get('combined_text')) else str(row.get('combined_text')),
-    'hypergraph':({k:json_safe(row.get(k)) for k in bundle['hypergraph_feature_cols'] if k in row.index} if bundle.get('hypergraph_active') else None)
-}
-# Uses the same engineered feature columns and text prepared by notebook 1.
-client=TestClient(app)
-print('GET /health:',client.get('/health').json())
-print('GET /model-info:',client.get('/model-info').json())
-response=client.post('/score',json=request_payload)
-print('POST /score status:',response.status_code)
-print(response.json())
-assert response.status_code==200
-
-
-# In[3]:
-
-
-# Start a persistent Uvicorn server when invoked by run_api.sh or Docker.
-if os.getenv('START_API','0') == '1':
+if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app,host=os.getenv('API_HOST','0.0.0.0'),port=int(os.getenv('API_PORT','8000')))
-else:
-    print('API app is ready. For a persistent server run: bash run_api.sh')
-
-
-# In[ ]:
-
-
-
-
+    uvicorn.run(
+        "api_service:app",
+        host=os.getenv("API_HOST", "0.0.0.0"),
+        port=int(os.getenv("API_PORT", "8000")),
+        reload=False,
+    )
